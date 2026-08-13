@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Media Downloader - Zero Trust
 // @namespace    reddit-media-downloader
-// @version      2.5.0
+// @version      2.6.0
 // @description  Securely download Reddit post and comment media.
 // @author       mrkwxopya
 // @license      MIT
@@ -21,35 +21,11 @@
 (function () {
     'use strict';
 
-    /*
-     * ============================================================
-     * Reddit Media Downloader
-     * Version 2.5.0
-     * Author: mrkwxopya
-     * License: MIT
-     * ============================================================
-     */
-
     const CONFIG = Object.freeze({
         DOWNLOAD_FOLDER: 'reddit-posts',
         BUTTON_TEXT: 'Download',
-        SCAN_INTERVAL: 1200,
         DEBUG: false
     });
-
-
-    /*
-     * ============================================================
-     * TRUSTED MEDIA HOSTS
-     * ============================================================
-     *
-     * Zero Trust:
-     *
-     * Nothing is downloaded unless the hostname is explicitly
-     * present in this allowlist.
-     *
-     * ============================================================
-     */
 
     const ALLOWED_MEDIA_HOSTS = new Set([
         'i.redd.it',
@@ -57,7 +33,6 @@
         'external-preview.redd.it',
         'v.redd.it'
     ]);
-
 
     const IMAGE_EXTENSIONS = new Set([
         'jpg',
@@ -67,7 +42,6 @@
         'gif'
     ]);
 
-
     const VIDEO_EXTENSIONS = new Set([
         'mp4',
         'webm',
@@ -76,30 +50,23 @@
     ]);
 
 
-    /*
-     * ============================================================
-     * DEBUG
-     * ============================================================
-     */
+    // ============================================================
+    // DEBUG
+    // ============================================================
 
     function debug(...args) {
-
-        if (!CONFIG.DEBUG) {
-            return;
+        if (CONFIG.DEBUG) {
+            console.debug(
+                '[Reddit Downloader]',
+                ...args
+            );
         }
-
-        console.debug(
-            '[Reddit Downloader]',
-            ...args
-        );
     }
 
 
-    /*
-     * ============================================================
-     * URL PARSING
-     * ============================================================
-     */
+    // ============================================================
+    // URL VALIDATION
+    // ============================================================
 
     function parseURL(value) {
 
@@ -119,21 +86,11 @@
                     location.href
                 );
 
-
-            /*
-             * HTTPS only.
-             */
-
             if (
                 url.protocol !== 'https:'
             ) {
                 return null;
             }
-
-
-            /*
-             * Never allow credentials.
-             */
 
             if (
                 url.username ||
@@ -141,7 +98,6 @@
             ) {
                 return null;
             }
-
 
             return url;
 
@@ -152,24 +108,14 @@
     }
 
 
-    /*
-     * ============================================================
-     * ZERO TRUST MEDIA VALIDATION
-     * ============================================================
-     */
-
-    function isAllowedMediaURL(
-        value
-    ) {
+    function isAllowedMediaURL(value) {
 
         const url =
             parseURL(value);
 
-
         if (!url) {
             return false;
         }
-
 
         return ALLOWED_MEDIA_HOSTS.has(
             url.hostname.toLowerCase()
@@ -177,24 +123,18 @@
     }
 
 
-    /*
-     * ============================================================
-     * EXTENSION
-     * ============================================================
-     */
+    // ============================================================
+    // EXTENSION
+    // ============================================================
 
-    function getExtension(
-        value
-    ) {
+    function getExtension(value) {
 
         const url =
             parseURL(value);
 
-
         if (!url) {
             return null;
         }
-
 
         const match =
             url.pathname
@@ -203,22 +143,18 @@
                     /\.([a-z0-9]{2,5})$/
                 );
 
-
         if (!match) {
             return null;
         }
 
-
         let extension =
             match[1];
-
 
         if (
             extension === 'jpeg'
         ) {
             extension = 'jpg';
         }
-
 
         if (
             IMAGE_EXTENSIONS.has(
@@ -231,24 +167,14 @@
             return extension;
         }
 
-
         return null;
     }
 
 
-    /*
-     * ============================================================
-     * MEDIA TYPE
-     * ============================================================
-     */
-
-    function getMediaType(
-        value
-    ) {
+    function getMediaType(value) {
 
         const extension =
             getExtension(value);
-
 
         if (
             extension &&
@@ -259,7 +185,6 @@
             return 'image';
         }
 
-
         if (
             extension &&
             VIDEO_EXTENSIONS.has(
@@ -268,7 +193,6 @@
         ) {
             return 'video';
         }
-
 
         if (
             typeof value === 'string' &&
@@ -279,20 +203,15 @@
             return 'video';
         }
 
-
         return null;
     }
 
 
-    /*
-     * ============================================================
-     * SANITIZE FILENAME
-     * ============================================================
-     */
+    // ============================================================
+    // FILENAME
+    // ============================================================
 
-    function sanitizeFilename(
-        value
-    ) {
+    function sanitizeFilename(value) {
 
         if (
             typeof value !== 'string' ||
@@ -301,15 +220,8 @@
             return 'reddit-media';
         }
 
-
         let result =
             String(value);
-
-
-        /*
-         * Remove illegal Windows filename
-         * characters.
-         */
 
         result =
             result.replace(
@@ -317,21 +229,11 @@
                 ''
             );
 
-
-        /*
-         * Remove control characters.
-         */
-
         result =
             result.replace(
                 /[\u0000-\u001F\u007F]/g,
                 ''
             );
-
-
-        /*
-         * Prevent path traversal.
-         */
 
         result =
             result.replace(
@@ -339,13 +241,11 @@
                 '.'
             );
 
-
         result =
             result.replace(
                 /[/\\]/g,
                 ''
             );
-
 
         result =
             result.replace(
@@ -353,10 +253,8 @@
                 ' '
             );
 
-
         result =
             result.trim();
-
 
         result =
             result.replace(
@@ -364,44 +262,29 @@
                 ''
             );
 
-
-        if (!result) {
-            result =
-                'reddit-media';
-        }
-
-
-        return result.substring(
-            0,
-            160
+        return (
+            result.substring(
+                0,
+                160
+            ) ||
+            'reddit-media'
         );
     }
 
 
-    /*
-     * ============================================================
-     * SHADOW ROOT HELPERS
-     * ============================================================
-     */
+    // ============================================================
+    // SHADOW DOM
+    // ============================================================
 
-    function getShadowRoot(
-        element
-    ) {
+    function getShadowRoot(element) {
 
         if (!element) {
             return null;
         }
 
-
         return element.shadowRoot || null;
     }
 
-
-    /*
-     * ============================================================
-     * DEEP QUERY
-     * ============================================================
-     */
 
     function queryDeep(
         root,
@@ -412,11 +295,6 @@
             return null;
         }
 
-
-        /*
-         * Search the current root first.
-         */
-
         for (
             const selector
             of selectors
@@ -424,27 +302,20 @@
 
             try {
 
-                const element =
+                const result =
                     root.querySelector(
                         selector
                     );
 
-
-                if (element) {
-                    return element;
+                if (result) {
+                    return result;
                 }
 
             } catch {
-                /*
-                 * Ignore invalid selector errors.
-                 */
+                // Ignore invalid selectors.
             }
         }
 
-
-        /*
-         * Search nested open Shadow DOM.
-         */
 
         if (
             !root.querySelectorAll
@@ -468,13 +339,11 @@
                 continue;
             }
 
-
             const result =
                 queryDeep(
                     element.shadowRoot,
                     selectors
                 );
-
 
             if (result) {
                 return result;
@@ -486,19 +355,12 @@
     }
 
 
-    /*
-     * ============================================================
-     * DEEP QUERY ALL
-     * ============================================================
-     */
-
     function queryAllDeep(
         root,
         selector
     ) {
 
         const results = [];
-
 
         if (!root) {
             return results;
@@ -509,24 +371,30 @@
             root.querySelectorAll
         ) {
 
-            root
-                .querySelectorAll(
-                    selector
-                )
-                .forEach(
-                    element => {
+            try {
 
-                        if (
-                            !results.includes(
-                                element
-                            )
-                        ) {
-                            results.push(
-                                element
-                            );
+                root
+                    .querySelectorAll(
+                        selector
+                    )
+                    .forEach(
+                        element => {
+
+                            if (
+                                !results.includes(
+                                    element
+                                )
+                            ) {
+                                results.push(
+                                    element
+                                );
+                            }
                         }
-                    }
-                );
+                    );
+
+            } catch {
+                return results;
+            }
         }
 
 
@@ -552,13 +420,11 @@
                 continue;
             }
 
-
             const nested =
                 queryAllDeep(
                     element.shadowRoot,
                     selector
                 );
-
 
             for (
                 const item
@@ -582,15 +448,11 @@
     }
 
 
-    /*
-     * ============================================================
-     * POST ID
-     * ============================================================
-     */
+    // ============================================================
+    // POST ID
+    // ============================================================
 
-    function getPostID(
-        post
-    ) {
+    function getPostID(post) {
 
         if (!post) {
             return null;
@@ -598,9 +460,9 @@
 
 
         const attributes = [
-            'id',
             'post-id',
-            'data-post-id'
+            'data-post-id',
+            'id'
         ];
 
 
@@ -614,10 +476,7 @@
                     attribute
                 );
 
-
-            if (
-                !value
-            ) {
+            if (!value) {
                 continue;
             }
 
@@ -627,16 +486,10 @@
                     /^t3_([a-z0-9]+)$/i
                 );
 
-
             if (t3) {
                 return t3[1];
             }
 
-
-            /*
-             * Ignore generic element IDs
-             * such as shreddit-post-xxx.
-             */
 
             if (
                 /^[a-z0-9]+$/i.test(
@@ -649,7 +502,8 @@
 
 
         /*
-         * Try the Reddit post URL.
+         * Last resort:
+         * Find /comments/POST_ID/
          */
 
         const links =
@@ -668,7 +522,6 @@
                 link.getAttribute(
                     'href'
                 );
-
 
             if (!href) {
                 continue;
@@ -691,15 +544,11 @@
     }
 
 
-    /*
-     * ============================================================
-     * COMMENT ID
-     * ============================================================
-     */
+    // ============================================================
+    // COMMENT ID
+    // ============================================================
 
-    function getCommentID(
-        comment
-    ) {
+    function getCommentID(comment) {
 
         if (!comment) {
             return null;
@@ -724,7 +573,6 @@
                     attribute
                 );
 
-
             if (!value) {
                 continue;
             }
@@ -735,16 +583,10 @@
                     /^t1_([a-z0-9]+)$/i
                 );
 
-
             if (t1) {
                 return t1[1];
             }
 
-
-            /*
-             * Reddit comment IDs normally
-             * contain alphanumeric characters.
-             */
 
             if (
                 /^[a-z0-9]+$/i.test(
@@ -760,19 +602,14 @@
     }
 
 
-    /*
-     * ============================================================
-     * GET MEDIA FROM OWNER
-     * ============================================================
-     */
+    // ============================================================
+    // MEDIA
+    // ============================================================
 
-    function collectMedia(
-        owner
-    ) {
+    function collectMedia(owner) {
 
         const media =
             new Set();
-
 
         if (!owner) {
             return [];
@@ -780,21 +617,10 @@
 
 
         /*
-         * --------------------------------------------------------
-         * Explicit Reddit media links
-         * --------------------------------------------------------
+         * Only explicitly trusted Reddit media
+         * links are accepted.
          *
-         * We DO NOT scan every image.
-         *
-         * This prevents:
-         *
-         * - avatars
-         * - profile pictures
-         * - Reddit icons
-         * - awards
-         * - UI images
-         *
-         * from being downloaded.
+         * This prevents avatars/icons/etc.
          */
 
         queryAllDeep(
@@ -808,13 +634,9 @@
                         'href'
                     );
 
-
-                if (
-                    !href
-                ) {
+                if (!href) {
                     return;
                 }
-
 
                 if (
                     !isAllowedMediaURL(
@@ -824,12 +646,10 @@
                     return;
                 }
 
-
                 const type =
                     getMediaType(
                         href
                     );
-
 
                 if (
                     type === 'image' ||
@@ -844,9 +664,7 @@
 
 
         /*
-         * --------------------------------------------------------
-         * Video elements
-         * --------------------------------------------------------
+         * Video sources.
          */
 
         queryAllDeep(
@@ -902,88 +720,33 @@
     }
 
 
-    /*
-     * ============================================================
-     * FIND POST OWNER
-     * ============================================================
-     */
+    // ============================================================
+    // BUTTON EXISTENCE
+    // ============================================================
+    //
+    // This fixes the repeated comment buttons.
+    //
+    // We check:
+    //
+    // 1. Host DOM
+    // 2. Owner Shadow DOM
+    // 3. Nested Shadow DOM
+    //
+    // ============================================================
 
-    function findPostOwner(
-        element
-    ) {
-
-        if (!element) {
-            return null;
-        }
-
-
-        const post =
-            element.closest?.(
-                'shreddit-post'
-            );
-
-
-        if (post) {
-            return post;
-        }
-
-
-        return null;
-    }
-
-
-    /*
-     * ============================================================
-     * FIND COMMENT OWNER
-     * ============================================================
-     */
-
-    function findCommentOwner(
-        element
-    ) {
-
-        if (!element) {
-            return null;
-        }
-
-
-        const comment =
-            element.closest?.(
-                'shreddit-comment'
-            );
-
-
-        if (comment) {
-            return comment;
-        }
-
-
-        return null;
-    }
-
-
-    /*
-     * ============================================================
-     * FIND UPVOTE
-     * ============================================================
-     *
-     * IMPORTANT:
-     *
-     * Current Reddit / shReddit uses:
-     *
-     * <button upvote>
-     *
-     * inside the component Shadow DOM.
-     *
-     * ============================================================
-     */
-
-    function findUpvote(
-        owner
-    ) {
+    function hasDownloadButton(owner) {
 
         if (!owner) {
-            return null;
+            return true;
+        }
+
+
+        if (
+            owner.querySelector?.(
+                '.reddit-media-download-button'
+            )
+        ) {
+            return true;
         }
 
 
@@ -993,10 +756,55 @@
             );
 
 
+        if (
+            shadow &&
+            shadow.querySelector(
+                '.reddit-media-download-button'
+            )
+        ) {
+            return true;
+        }
+
+
+        const deep =
+            queryDeep(
+                owner,
+                [
+                    '.reddit-media-download-button'
+                ]
+            );
+
+
+        return Boolean(
+            deep
+        );
+    }
+
+
+    // ============================================================
+    // FIND POST UPVOTE
+    // ============================================================
+    //
+    // Dedicated path for the main post.
+    //
+    // ============================================================
+
+    function findPostUpvote(post) {
+
+        if (!post) {
+            return null;
+        }
+
+
         /*
-         * For shReddit posts/comments,
-         * this is the preferred selector.
+         * Current Reddit:
          */
+
+        const shadow =
+            getShadowRoot(
+                post
+            );
+
 
         if (shadow) {
 
@@ -1011,17 +819,12 @@
             }
 
 
-            /*
-             * Additional selectors.
-             */
-
             const selectors = [
                 'button[aria-label="Upvote"]',
                 'button[aria-label="upvote"]',
                 'button[aria-label*="upvote" i]',
                 '[data-testid="upvote-button"]',
-                '[data-event-action="upvote"]',
-                '[slot="vote-button"]'
+                '[data-event-action="upvote"]'
             ];
 
 
@@ -1030,47 +833,111 @@
                 of selectors
             ) {
 
-                const element =
+                const result =
                     shadow.querySelector(
                         selector
                     );
 
-
-                if (element) {
-                    return element;
+                if (result) {
+                    return result;
                 }
             }
         }
 
 
         /*
-         * Fallback to deep search.
+         * Deep fallback.
          */
 
         return queryDeep(
-            owner,
+            post,
             [
                 'button[upvote]',
                 'button[aria-label="Upvote"]',
                 'button[aria-label="upvote"]',
                 'button[aria-label*="upvote" i]',
                 '[data-testid="upvote-button"]',
-                '[data-event-action="upvote"]',
-                '[slot="vote-button"]'
+                '[data-event-action="upvote"]'
             ]
         );
     }
 
 
-    /*
-     * ============================================================
-     * FIND VOTE CONTAINER
-     * ============================================================
-     */
+    // ============================================================
+    // FIND COMMENT UPVOTE
+    // ============================================================
 
-    function findVoteContainer(
-        upvote
-    ) {
+    function findCommentUpvote(comment) {
+
+        if (!comment) {
+            return null;
+        }
+
+
+        const shadow =
+            getShadowRoot(
+                comment
+            );
+
+
+        if (shadow) {
+
+            const direct =
+                shadow.querySelector(
+                    'button[upvote]'
+                );
+
+
+            if (direct) {
+                return direct;
+            }
+
+
+            const selectors = [
+                'button[aria-label="Upvote"]',
+                'button[aria-label="upvote"]',
+                'button[aria-label*="upvote" i]',
+                '[data-testid="upvote-button"]',
+                '[data-event-action="upvote"]'
+            ];
+
+
+            for (
+                const selector
+                of selectors
+            ) {
+
+                const result =
+                    shadow.querySelector(
+                        selector
+                    );
+
+                if (result) {
+                    return result;
+                }
+            }
+        }
+
+
+        return queryDeep(
+            comment,
+            [
+                'button[upvote]',
+                'button[aria-label="Upvote"]',
+                'button[aria-label="upvote"]',
+                'button[aria-label*="upvote" i]',
+                '[data-testid="upvote-button"]',
+                '[data-event-action="upvote"]'
+            ]
+        );
+    }
+
+
+    // ============================================================
+    // VOTE CONTAINER
+    // ============================================================
+
+    function findVoteContainer(upvote) {
 
         if (!upvote) {
             return null;
@@ -1078,37 +945,26 @@
 
 
         /*
-         * In current shReddit the immediate
-         * parent of button[upvote] is the
-         * correct action container.
+         * Current Reddit structure:
+         *
+         * action container
+         *   ├── upvote
+         *   ├── score
+         *   └── downvote
+         *
+         * We use the direct parent.
          */
 
-        if (
-            upvote.parentElement
-        ) {
-            return upvote.parentElement;
-        }
-
-
-        return null;
+        return (
+            upvote.parentElement ||
+            null
+        );
     }
 
 
-    /*
-     * ============================================================
-     * BUILD FILENAME
-     * ============================================================
-     *
-     * Example:
-     *
-     * p2frxcw.jpg
-     *
-     * p2frxcw-2.jpg
-     *
-     * p2frxcw-3.jpg
-     *
-     * ============================================================
-     */
+    // ============================================================
+    // FILENAME
+    // ============================================================
 
     function buildFilename(
         owner,
@@ -1120,10 +976,6 @@
             null;
 
 
-        /*
-         * Post.
-         */
-
         if (
             owner.matches?.(
                 'shreddit-post'
@@ -1134,14 +986,8 @@
                 getPostID(
                     owner
                 );
-        }
 
-
-        /*
-         * Comment.
-         */
-
-        else if (
+        } else if (
             owner.matches?.(
                 'shreddit-comment'
             )
@@ -1154,14 +1000,9 @@
         }
 
 
-        /*
-         * Fallback.
-         */
-
         if (
             !baseName
         ) {
-
             baseName =
                 'reddit-media';
         }
@@ -1174,7 +1015,11 @@
 
 
         /*
-         * Gallery numbering.
+         * Gallery:
+         *
+         * abc123.jpg
+         * abc123-2.jpg
+         * abc123-3.jpg
          */
 
         if (
@@ -1186,19 +1031,13 @@
         }
 
 
-        /*
-         * Determine extension.
-         */
-
         let extension =
             getExtension(
                 url
             );
 
 
-        if (
-            !extension
-        ) {
+        if (!extension) {
 
             extension =
                 getMediaType(
@@ -1216,11 +1055,9 @@
     }
 
 
-    /*
-     * ============================================================
-     * DOWNLOAD
-     * ============================================================
-     */
+    // ============================================================
+    // DOWNLOAD
+    // ============================================================
 
     function downloadMedia(
         url,
@@ -1228,7 +1065,7 @@
     ) {
 
         /*
-         * FINAL SECURITY CHECK
+         * Final Zero Trust validation.
          */
 
         if (
@@ -1239,19 +1076,13 @@
 
             console.warn(
                 '[Reddit Downloader] ' +
-                'Blocked untrusted URL:',
+                'Blocked URL:',
                 url
             );
 
             return;
         }
 
-
-        /*
-         * Filename security check.
-         *
-         * The path is generated internally.
-         */
 
         if (
             typeof filename !== 'string' ||
@@ -1262,17 +1093,13 @@
 
             console.warn(
                 '[Reddit Downloader] ' +
-                'Blocked unsafe filename:',
+                'Blocked filename:',
                 filename
             );
 
             return;
         }
 
-
-        /*
-         * Tampermonkey / Violentmonkey.
-         */
 
         if (
             typeof GM_download ===
@@ -1298,65 +1125,62 @@
                 onerror(error) {
 
                     console.error(
-                        '[Reddit Downloader] ' +
-                        'Download failed:',
+                        '[Reddit Downloader]',
                         error
                     );
                 }
 
             });
 
-
             return;
         }
 
 
         /*
-         * Browser fallback.
+         * Fallback.
          */
 
-        const anchor =
+        const link =
             document.createElement(
                 'a'
             );
 
 
-        anchor.href =
+        link.href =
             url;
 
 
-        anchor.download =
+        link.download =
             filename;
 
 
-        anchor.target =
+        link.target =
             '_blank';
 
 
-        anchor.rel =
+        link.rel =
             'noopener noreferrer';
 
 
         document.body.appendChild(
-            anchor
+            link
         );
 
 
-        anchor.click();
+        link.click();
 
 
-        anchor.remove();
+        link.remove();
     }
 
 
-    /*
-     * ============================================================
-     * CREATE DOWNLOAD BUTTON
-     * ============================================================
-     */
+    // ============================================================
+    // CREATE BUTTON
+    // ============================================================
 
     function createDownloadButton(
-        owner
+        owner,
+        type
     ) {
 
         if (!owner) {
@@ -1365,30 +1189,15 @@
 
 
         /*
-         * --------------------------------------------------------
-         * Do not create duplicate buttons.
-         * --------------------------------------------------------
+         * IMPORTANT:
+         *
+         * Do not create another button if one
+         * already exists.
          */
 
-        const shadow =
-            getShadowRoot(
+        if (
+            hasDownloadButton(
                 owner
-            );
-
-
-        if (
-            shadow &&
-            shadow.querySelector(
-                '.reddit-media-download-button'
-            )
-        ) {
-            return;
-        }
-
-
-        if (
-            owner.querySelector?.(
-                '.reddit-media-download-button'
             )
         ) {
             return;
@@ -1396,9 +1205,7 @@
 
 
         /*
-         * --------------------------------------------------------
          * Find media.
-         * --------------------------------------------------------
          */
 
         const media =
@@ -1415,15 +1222,13 @@
 
 
         /*
-         * --------------------------------------------------------
-         * Find Reddit Upvote.
-         * --------------------------------------------------------
+         * Find the correct Upvote.
          */
 
         const upvote =
-            findUpvote(
-                owner
-            );
+            type === 'post'
+                ? findPostUpvote(owner)
+                : findCommentUpvote(owner);
 
 
         if (
@@ -1431,19 +1236,13 @@
         ) {
 
             debug(
-                'Media found, waiting for Upvote:',
-                owner
+                'Waiting for upvote:',
+                type
             );
 
             return;
         }
 
-
-        /*
-         * --------------------------------------------------------
-         * Find action container.
-         * --------------------------------------------------------
-         */
 
         const container =
             findVoteContainer(
@@ -1459,9 +1258,21 @@
 
 
         /*
-         * --------------------------------------------------------
+         * Double check immediately before
+         * insertion.
+         */
+
+        if (
+            container.querySelector?.(
+                '.reddit-media-download-button'
+            )
+        ) {
+            return;
+        }
+
+
+        /*
          * Create button.
-         * --------------------------------------------------------
          */
 
         const button =
@@ -1494,10 +1305,6 @@
         );
 
 
-        /*
-         * Reddit-like styling.
-         */
-
         button.style.cssText = `
             appearance: none;
             border: 0;
@@ -1522,10 +1329,6 @@
             flex: 0 0 auto;
         `;
 
-
-        /*
-         * Hover.
-         */
 
         button.addEventListener(
             'mouseenter',
@@ -1552,11 +1355,9 @@
         );
 
 
-        /*
-         * --------------------------------------------------------
-         * DOWNLOAD CLICK
-         * --------------------------------------------------------
-         */
+        // ========================================================
+        // DOWNLOAD CLICK
+        // ========================================================
 
         button.addEventListener(
             'click',
@@ -1567,7 +1368,7 @@
                 event.stopPropagation();
 
 
-                const originalText =
+                const original =
                     button.textContent;
 
 
@@ -1582,7 +1383,7 @@
                 try {
 
                     /*
-                     * Re-scan immediately.
+                     * Refresh media list.
                      */
 
                     const currentMedia =
@@ -1607,7 +1408,7 @@
 
 
                     /*
-                     * Download each unique URL.
+                     * Download only unique URLs.
                      */
 
                     for (
@@ -1619,10 +1420,6 @@
                         const url =
                             currentMedia[i];
 
-
-                        /*
-                         * Zero Trust validation.
-                         */
 
                         if (
                             !isAllowedMediaURL(
@@ -1646,11 +1443,6 @@
                             filename
                         );
 
-
-                        /*
-                         * Small delay to avoid
-                         * browser download throttling.
-                         */
 
                         await new Promise(
                             resolve =>
@@ -1679,7 +1471,6 @@
                     button.textContent =
                         'Error';
 
-
                 } finally {
 
                     setTimeout(
@@ -1688,9 +1479,8 @@
                             button.disabled =
                                 false;
 
-
                             button.textContent =
-                                originalText;
+                                original;
 
                         },
                         1500
@@ -1702,18 +1492,7 @@
 
         /*
          * ========================================================
-         * INSERT BEFORE UPVOTE
-         * ========================================================
-         *
-         * IMPORTANT:
-         *
-         * The button is inserted into the same
-         * container as the actual Reddit Upvote.
-         *
-         * Result:
-         *
-         * Download | Upvote | Score | Downvote
-         *
+         * INSERT DIRECTLY BEFORE UPVOTE
          * ========================================================
          */
 
@@ -1724,23 +1503,17 @@
 
 
         debug(
-            'Download button inserted:',
-            owner
+            'Button added:',
+            type
         );
     }
 
 
-    /*
-     * ============================================================
-     * SCAN POSTS
-     * ============================================================
-     */
+    // ============================================================
+    // SCAN MAIN POSTS
+    // ============================================================
 
     function scanPosts() {
-
-        /*
-         * Current shReddit.
-         */
 
         document
             .querySelectorAll(
@@ -1750,41 +1523,27 @@
                 post => {
 
                     createDownloadButton(
-                        post
-                    );
-                }
-            );
-
-
-        /*
-         * Fallback.
-         */
-
-        document
-            .querySelectorAll(
-                '[data-testid="post-container"]'
-            )
-            .forEach(
-                post => {
-
-                    createDownloadButton(
-                        post
+                        post,
+                        'post'
                     );
                 }
             );
     }
 
 
-    /*
-     * ============================================================
-     * SCAN COMMENTS
-     * ============================================================
-     */
+    // ============================================================
+    // SCAN COMMENTS
+    // ============================================================
 
     function scanComments() {
 
         /*
-         * Standard comment.
+         * ONLY scan shreddit-comment.
+         *
+         * We intentionally DO NOT separately scan
+         * shreddit-comment-action-row.
+         *
+         * That was the cause of duplicate buttons.
          */
 
         document
@@ -1795,68 +1554,17 @@
                 comment => {
 
                     createDownloadButton(
-                        comment
-                    );
-                }
-            );
-
-
-        /*
-         * Some Reddit versions expose
-         * the action row separately.
-         *
-         * Find its parent comment.
-         */
-
-        document
-            .querySelectorAll(
-                'shreddit-comment-action-row'
-            )
-            .forEach(
-                actionRow => {
-
-                    const comment =
-                        actionRow.closest(
-                            'shreddit-comment'
-                        );
-
-
-                    if (
-                        comment
-                    ) {
-
-                        createDownloadButton(
-                            comment
-                        );
-                    }
-                }
-            );
-
-
-        /*
-         * Legacy comments.
-         */
-
-        document
-            .querySelectorAll(
-                '[data-testid="comment"]'
-            )
-            .forEach(
-                comment => {
-
-                    createDownloadButton(
-                        comment
+                        comment,
+                        'comment'
                     );
                 }
             );
     }
 
 
-    /*
-     * ============================================================
-     * MAIN SCAN
-     * ============================================================
-     */
+    // ============================================================
+    // SCAN
+    // ============================================================
 
     function scan() {
 
@@ -1866,14 +1574,29 @@
     }
 
 
-    /*
-     * ============================================================
-     * MUTATION OBSERVER
-     * ============================================================
-     */
+    // ============================================================
+    // MUTATION OBSERVER
+    // ============================================================
 
-    let scanTimer =
+    let scanTimeout =
         null;
+
+
+    function scheduleScan(
+        delay = 250
+    ) {
+
+        clearTimeout(
+            scanTimeout
+        );
+
+
+        scanTimeout =
+            setTimeout(
+                scan,
+                delay
+            );
+    }
 
 
     const observer =
@@ -1903,22 +1626,10 @@
 
 
                 if (
-                    !relevant
+                    relevant
                 ) {
-                    return;
+                    scheduleScan();
                 }
-
-
-                clearTimeout(
-                    scanTimer
-                );
-
-
-                scanTimer =
-                    setTimeout(
-                        scan,
-                        250
-                    );
             }
         );
 
@@ -1932,35 +1643,9 @@
     );
 
 
-    /*
-     * ============================================================
-     * PERIODIC SCAN
-     * ============================================================
-     *
-     * Reddit frequently renders the following
-     * independently:
-     *
-     * 1. Post
-     * 2. Media
-     * 3. Action row
-     * 4. Vote buttons
-     *
-     * Therefore a periodic scan is intentional.
-     *
-     * ============================================================
-     */
-
-    setInterval(
-        scan,
-        CONFIG.SCAN_INTERVAL
-    );
-
-
-    /*
-     * ============================================================
-     * SPA NAVIGATION
-     * ============================================================
-     */
+    // ============================================================
+    // SPA NAVIGATION
+    // ============================================================
 
     let lastURL =
         location.href;
@@ -1978,10 +1663,13 @@
                     location.href;
 
 
-                setTimeout(
-                    scan,
-                    300
-                );
+                /*
+                 * Reddit route changed.
+                 *
+                 * Wait for the new post/action row.
+                 */
+
+                scheduleScan(300);
 
 
                 setTimeout(
@@ -1992,20 +1680,18 @@
 
                 setTimeout(
                     scan,
-                    2500
+                    2000
                 );
             }
 
         },
-        1000
+        500
     );
 
 
-    /*
-     * ============================================================
-     * INITIAL SCANS
-     * ============================================================
-     */
+    // ============================================================
+    // INITIAL SCAN
+    // ============================================================
 
     setTimeout(
         scan,
@@ -2032,7 +1718,7 @@
 
 
     debug(
-        'Reddit Media Downloader 2.5.0 loaded.'
+        'Reddit Media Downloader 2.6.0 loaded.'
     );
 
 })();
