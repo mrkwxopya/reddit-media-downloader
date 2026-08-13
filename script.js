@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Reddit Media Downloader - Zero Trust
 // @namespace    reddit-media-downloader
-// @version      2.0.0
-// @description  Securely download Reddit post and comment media with strict URL validation.
-// @author       User
+// @version      2.1.0
+// @description  Securely download Reddit post and comment media.
+// @author       mrkwxopya
 // @match        https://www.reddit.com/*
 // @match        https://old.reddit.com/*
 // @match        https://new.reddit.com/*
@@ -12,20 +12,13 @@
 // @license MIT
 //
 // @grant        GM_download
-// @grant        GM_xmlhttpRequest
 //
-// @connect      reddit.com
-// @connect      www.reddit.com
-// @connect      old.reddit.com
-// @connect      new.reddit.com
 // @connect      i.redd.it
 // @connect      preview.redd.it
 // @connect      external-preview.redd.it
 // @connect      v.redd.it
 //
 // @noframes
-// @downloadURL https://update.greasyfork.org/scripts/591125/Reddit%20Media%20Downloader%20-%20Zero%20Trust.user.js
-// @updateURL https://update.greasyfork.org/scripts/591125/Reddit%20Media%20Downloader%20-%20Zero%20Trust.meta.js
 // ==/UserScript==
 
 (function () {
@@ -33,58 +26,20 @@
 
     /*
      * ============================================================
-     * Reddit Media Downloader V2
-     * ============================================================
-     *
-     * Design goals:
-     *
-     * 1. Zero Trust
-     *    - Never trust DOM-provided URLs.
-     *    - Never trust arbitrary protocols.
-     *    - Never trust arbitrary hosts.
-     *    - Validate every download target.
-     *
-     * 2. No external downloader services.
-     *
-     * 3. No API credentials.
-     *
-     * 4. No cookies or authentication tokens are exported.
-     *
-     * 5. Only Reddit-owned/approved media hosts are accepted.
-     *
-     * 6. Dynamic Reddit SPA content is supported.
-     *
-     * 7. Posts, comments, galleries, images and Reddit videos
-     *    are supported where the browser can access the media.
-     *
+     * CONFIG
      * ============================================================
      */
 
-    'use strict';
-
     const CONFIG = Object.freeze({
-
-        VERSION: '2.0.0',
-
-        DOWNLOAD_DIRECTORY: 'reddit-posts',
-
+        DOWNLOAD_FOLDER: 'reddit-posts',
         BUTTON_TEXT: 'Download',
-
-        MAX_FILENAME_LENGTH: 160,
-
-        MAX_URL_LENGTH: 4096,
-
-        OBSERVER_DELAY: 250,
-
-        RESCAN_INTERVAL: 3000,
-
         DEBUG: false
     });
 
 
     /*
      * ============================================================
-     * Security: Host Allowlist
+     * ALLOWED MEDIA HOSTS
      * ============================================================
      */
 
@@ -96,74 +51,69 @@
     ]);
 
 
-    const ALLOWED_REDDIT_HOSTS = new Set([
-        'reddit.com',
-        'www.reddit.com',
-        'old.reddit.com',
-        'new.reddit.com'
+    /*
+     * ============================================================
+     * MEDIA EXTENSIONS
+     * ============================================================
+     */
+
+    const IMAGE_EXTENSIONS = new Set([
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'gif'
     ]);
 
-
-    const ALLOWED_PROTOCOLS = new Set([
-        'https:'
+    const VIDEO_EXTENSIONS = new Set([
+        'mp4',
+        'webm',
+        'mov',
+        'm4v'
     ]);
 
 
     /*
      * ============================================================
-     * Security helpers
+     * DEBUG
      * ============================================================
      */
 
     function debug(...args) {
-
-        if (!CONFIG.DEBUG) {
-            return;
+        if (CONFIG.DEBUG) {
+            console.debug(
+                '[Reddit Downloader]',
+                ...args
+            );
         }
-
-        console.debug(
-            '[Reddit Media Downloader]',
-            ...args
-        );
     }
 
 
-    function isValidString(value) {
+    /*
+     * ============================================================
+     * URL VALIDATION
+     * ============================================================
+     */
 
-        return (
-            typeof value === 'string' &&
-            value.length > 0 &&
-            value.length <= CONFIG.MAX_URL_LENGTH
-        );
-    }
-
-
-    function parseSafeURL(value) {
-
-        if (!isValidString(value)) {
+    function parseURL(value) {
+        if (
+            typeof value !== 'string' ||
+            !value ||
+            value.length > 4096
+        ) {
             return null;
         }
 
         try {
-
             const url = new URL(
                 value,
-                window.location.origin
+                location.href
             );
 
-            /*
-             * Only HTTPS.
-             */
-            if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
+            if (url.protocol !== 'https:') {
                 return null;
             }
 
-            /*
-             * Reject credentials.
-             *
-             * Example:
-             * https://user:password@example.com
-             */
             if (url.username || url.password) {
                 return null;
             }
@@ -171,52 +121,19 @@
             return url;
 
         } catch {
-
             return null;
         }
     }
 
 
     function isAllowedMediaURL(value) {
-
-        const url = parseSafeURL(value);
-
-        if (!url) {
-            return false;
-        }
-
-        /*
-         * Exact hostname matching.
-         *
-         * Do NOT use:
-         *
-         * hostname.includes('redd.it')
-         *
-         * because:
-         *
-         * evil-redd.it
-         *
-         * could pass a weak check.
-         */
-        if (!ALLOWED_MEDIA_HOSTS.has(
-            url.hostname.toLowerCase()
-        )) {
-            return false;
-        }
-
-        return true;
-    }
-
-
-    function isAllowedRedditURL(value) {
-
-        const url = parseSafeURL(value);
+        const url = parseURL(value);
 
         if (!url) {
             return false;
         }
 
-        return ALLOWED_REDDIT_HOSTS.has(
+        return ALLOWED_MEDIA_HOSTS.has(
             url.hostname.toLowerCase()
         );
     }
@@ -224,124 +141,22 @@
 
     /*
      * ============================================================
-     * Filename security
+     * EXTENSION
      * ============================================================
      */
 
-    function sanitizeFilename(value) {
+    function getExtension(url) {
+        const parsed = parseURL(url);
 
-        if (!isValidString(value)) {
-            return 'reddit-media';
-        }
-
-        let filename = String(value);
-
-        /*
-         * Remove Windows reserved characters.
-         */
-        filename = filename.replace(
-            /[<>:"/\\|?*\x00-\x1F]/g,
-            ''
-        );
-
-        /*
-         * Remove control characters.
-         */
-        filename = filename.replace(
-            /[\u0000-\u001F\u007F]/g,
-            ''
-        );
-
-        /*
-         * Normalize whitespace.
-         */
-        filename = filename.replace(
-            /\s+/g,
-            ' '
-        );
-
-        /*
-         * Prevent directory traversal.
-         */
-        filename = filename
-            .replace(/\.\.+/g, '.')
-            .replace(/^[/\\]+/, '')
-            .replace(/[/\\]+/g, '');
-
-        /*
-         * Remove trailing periods/spaces.
-         */
-        filename = filename.replace(
-            /[. ]+$/g,
-            ''
-        );
-
-        /*
-         * Prevent Windows reserved names.
-         */
-        const reservedNames = new Set([
-            'CON',
-            'PRN',
-            'AUX',
-            'NUL',
-            'COM1',
-            'COM2',
-            'COM3',
-            'COM4',
-            'COM5',
-            'COM6',
-            'COM7',
-            'COM8',
-            'COM9',
-            'LPT1',
-            'LPT2',
-            'LPT3',
-            'LPT4',
-            'LPT5',
-            'LPT6',
-            'LPT7',
-            'LPT8',
-            'LPT9'
-        ]);
-
-        if (reservedNames.has(
-            filename.toUpperCase()
-        )) {
-            filename = `reddit-${filename}`;
-        }
-
-        if (!filename) {
-            filename = 'reddit-media';
-        }
-
-        return filename.substring(
-            0,
-            CONFIG.MAX_FILENAME_LENGTH
-        );
-    }
-
-
-    /*
-     * ============================================================
-     * Extension detection
-     * ============================================================
-     */
-
-    function getExtensionFromURL(value) {
-
-        const url = parseSafeURL(value);
-
-        if (!url) {
+        if (!parsed) {
             return null;
         }
 
         const pathname =
-            url.pathname.toLowerCase();
+            parsed.pathname.toLowerCase();
 
         const match =
-            pathname.match(
-                /\.([a-z0-9]{2,5})$/
-            );
+            pathname.match(/\.([a-z0-9]{2,5})$/);
 
         if (!match) {
             return null;
@@ -349,461 +164,646 @@
 
         const extension = match[1];
 
-        const allowedExtensions = new Set([
-            'jpg',
-            'jpeg',
-            'png',
-            'webp',
-            'gif',
-            'mp4',
-            'webm',
-            'mov',
-            'm4v'
-        ]);
-
-        if (!allowedExtensions.has(extension)) {
-            return null;
-        }
-
-        return extension === 'jpeg'
-            ? 'jpg'
-            : extension;
-    }
-
-
-    function getMediaType(url) {
-
-        const extension =
-            getExtensionFromURL(url);
-
-        if (!extension) {
-
-            if (
-                url.includes('v.redd.it')
-            ) {
-                return 'video';
-            }
-
-            return 'unknown';
-        }
-
         if (
-            ['jpg', 'png', 'webp', 'gif']
-                .includes(extension)
+            IMAGE_EXTENSIONS.has(extension) ||
+            VIDEO_EXTENSIONS.has(extension)
         ) {
-            return 'image';
+            return extension === 'jpeg'
+                ? 'jpg'
+                : extension;
         }
 
-        if (
-            ['mp4', 'webm', 'mov', 'm4v']
-                .includes(extension)
-        ) {
-            return 'video';
-        }
-
-        return 'unknown';
+        return null;
     }
 
 
     /*
      * ============================================================
-     * Reddit post information
+     * MEDIA TYPE
      * ============================================================
      */
 
-    function findPostElement(element) {
+    function getMediaType(url) {
+        const extension = getExtension(url);
 
+        if (
+            extension &&
+            IMAGE_EXTENSIONS.has(extension)
+        ) {
+            return 'image';
+        }
+
+        if (
+            extension &&
+            VIDEO_EXTENSIONS.has(extension)
+        ) {
+            return 'video';
+        }
+
+        if (
+            typeof url === 'string' &&
+            url.includes('v.redd.it')
+        ) {
+            return 'video';
+        }
+
+        return null;
+    }
+
+
+    /*
+     * ============================================================
+     * FILENAME SANITIZATION
+     * ============================================================
+     */
+
+    function sanitizeFilename(value) {
+        if (
+            typeof value !== 'string' ||
+            !value
+        ) {
+            return 'reddit-media';
+        }
+
+        let result = value;
+
+        result = result.replace(
+            /[<>:"/\\|?*\x00-\x1F]/g,
+            ''
+        );
+
+        result = result.replace(
+            /[\u0000-\u001F\u007F]/g,
+            ''
+        );
+
+        result = result.replace(
+            /\.\.+/g,
+            '.'
+        );
+
+        result = result.replace(
+            /[/\\]/g,
+            ''
+        );
+
+        result = result.replace(
+            /\s+/g,
+            ' '
+        );
+
+        result = result.trim();
+
+        result = result.replace(
+            /[. ]+$/g,
+            ''
+        );
+
+        return result.substring(0, 160) ||
+            'reddit-media';
+    }
+
+
+    /*
+     * ============================================================
+     * GET POST ELEMENT
+     * ============================================================
+     */
+
+    function getPostElement(element) {
         return (
-            element.closest(
-                'shreddit-post'
-            ) ||
-            element.closest(
-                '[data-testid="post-container"]'
-            ) ||
-            element.closest(
-                'article'
-            )
+            element.closest('shreddit-post') ||
+            element.closest('[data-testid="post-container"]')
         );
     }
 
 
-    function findCommentElement(element) {
+    /*
+     * ============================================================
+     * GET COMMENT ELEMENT
+     * ============================================================
+     */
 
+    function getCommentElement(element) {
         return (
-            element.closest(
-                'shreddit-comment'
-            ) ||
-            element.closest(
-                '[data-testid="comment"]'
-            )
+            element.closest('shreddit-comment') ||
+            element.closest('[data-testid="comment"]')
         );
     }
 
 
-    function getPostId(element) {
+    /*
+     * ============================================================
+     * GET POST ID
+     * ============================================================
+     *
+     * Examples:
+     *
+     * t3_p2frxcw
+     *      ↓
+     * p2frxcw
+     *
+     * ============================================================
+     */
 
-        const post =
-            findPostElement(element);
+    function getPostID(element) {
+        const post = getPostElement(element);
 
         if (!post) {
-            return 'post';
+            return null;
         }
 
         const candidates = [
-
             post.getAttribute('id'),
-
-            post.getAttribute(
-                'data-post-id'
-            ),
-
-            post.getAttribute(
-                'post-id'
-            ),
-
+            post.getAttribute('post-id'),
+            post.getAttribute('data-post-id'),
             post.dataset?.postId
         ];
 
         for (const value of candidates) {
-
             if (
-                typeof value === 'string' &&
-                /^t3_[a-z0-9]+$/i.test(value)
+                typeof value !== 'string' ||
+                !value
             ) {
-                return value;
+                continue;
             }
 
-            if (
-                typeof value === 'string' &&
-                /^[a-z0-9]+$/i.test(value)
-            ) {
-                return value;
+            /*
+             * t3_p2frxcw
+             */
+            const t3Match =
+                value.match(/^t3_([a-z0-9]+)$/i);
+
+            if (t3Match) {
+                return t3Match[1];
+            }
+
+            /*
+             * p2frxcw
+             */
+            const normalMatch =
+                value.match(/^([a-z0-9]+)$/i);
+
+            if (normalMatch) {
+                return normalMatch[1];
             }
         }
 
-        return 'post';
+        return null;
     }
 
 
-    function getCommentId(element) {
+    /*
+     * ============================================================
+     * GET COMMENT ID
+     * ============================================================
+     */
 
+    function getCommentID(element) {
         const comment =
-            findCommentElement(element);
+            getCommentElement(element);
 
         if (!comment) {
             return null;
         }
 
         const candidates = [
-
-            comment.getAttribute(
-                'thingid'
-            ),
-
-            comment.getAttribute(
-                'data-comment-id'
-            ),
-
+            comment.getAttribute('thingid'),
+            comment.getAttribute('comment-id'),
+            comment.getAttribute('data-comment-id'),
             comment.dataset?.commentId,
-
             comment.id
         ];
 
         for (const value of candidates) {
-
             if (
-                typeof value === 'string' &&
-                value.length <= 100 &&
-                /^[a-zA-Z0-9_-]+$/.test(value)
+                typeof value !== 'string' ||
+                !value
             ) {
-                return value;
+                continue;
+            }
+
+            /*
+             * t1_xyz123
+             *     ↓
+             * xyz123
+             */
+
+            const t1Match =
+                value.match(/^t1_([a-z0-9]+)$/i);
+
+            if (t1Match) {
+                return t1Match[1];
+            }
+
+            /*
+             * Normal ID
+             */
+
+            const normalMatch =
+                value.match(/^([a-z0-9]+)$/i);
+
+            if (normalMatch) {
+                return normalMatch[1];
             }
         }
 
-        return 'comment';
-    }
-
-
-    function getPostTitle(element) {
-
-        const post =
-            findPostElement(element);
-
-        if (!post) {
-            return 'reddit-post';
-        }
-
-        const candidates = [
-
-            post.getAttribute(
-                'post-title'
-            ),
-
-            post.querySelector(
-                '[slot="title"]'
-            )?.textContent,
-
-            post.querySelector(
-                'h1'
-            )?.textContent,
-
-            post.querySelector(
-                'h2'
-            )?.textContent,
-
-            post.querySelector(
-                'h3'
-            )?.textContent
-        ];
-
-        for (const title of candidates) {
-
-            if (
-                typeof title === 'string' &&
-                title.trim()
-            ) {
-                return sanitizeFilename(
-                    title.trim()
-                );
-            }
-        }
-
-        return 'reddit-post';
+        return null;
     }
 
 
     /*
      * ============================================================
-     * Media extraction
+     * FIND ACTUAL POST MEDIA
+     * ============================================================
+     *
+     * IMPORTANT:
+     *
+     * We intentionally DO NOT scan every image inside the post.
+     *
+     * This prevents:
+     *
+     * - avatars
+     * - subreddit icons
+     * - user icons
+     * - badges
+     * - UI images
+     * - awards
+     * - emojis
+     *
+     * from being downloaded.
+     *
      * ============================================================
      */
 
-    function collectDOMMedia(element) {
+    function getPostMedia(element) {
+        const post =
+            getPostElement(element);
 
-        const results = new Set();
+        if (!post) {
+            return [];
+        }
+
+        const media = new Set();
 
 
         /*
-         * Images
+         * --------------------------------------------------------
+         * Reddit image containers
+         * --------------------------------------------------------
          */
-        element
-            .querySelectorAll('img')
-            .forEach(img => {
 
-                const candidates = [
+        const imageSelectors = [
+            'a[href*="i.redd.it"]',
+            'a[href*="preview.redd.it"]',
+            'a[href*="external-preview.redd.it"]'
+        ];
 
-                    img.currentSrc,
 
-                    img.src,
+        for (
+            const selector
+            of imageSelectors
+        ) {
 
-                    img.getAttribute(
-                        'data-src'
-                    ),
+            post
+                .querySelectorAll(selector)
+                .forEach(anchor => {
 
-                    img.getAttribute(
-                        'src'
-                    )
-                ];
-
-                for (const value of candidates) {
+                    const href =
+                        anchor.getAttribute('href');
 
                     if (
-                        isAllowedMediaURL(value)
+                        href &&
+                        isAllowedMediaURL(href)
+                    ) {
+                        const type =
+                            getMediaType(href);
+
+                        if (type === 'image') {
+                            media.add(href);
+                        }
+                    }
+                });
+        }
+
+
+        /*
+         * --------------------------------------------------------
+         * Actual <video> elements
+         * --------------------------------------------------------
+         */
+
+        post
+            .querySelectorAll('video')
+            .forEach(video => {
+
+                const candidates = [
+                    video.currentSrc,
+                    video.src
+                ];
+
+                video
+                    .querySelectorAll('source')
+                    .forEach(source => {
+                        candidates.push(
+                            source.src
+                        );
+                    });
+
+
+                for (
+                    const url
+                    of candidates
+                ) {
+
+                    if (
+                        isAllowedMediaURL(url)
                     ) {
 
-                        results.add(value);
-
-                        break;
+                        if (
+                            getMediaType(url) ===
+                            'video'
+                        ) {
+                            media.add(url);
+                        }
                     }
                 }
             });
 
 
         /*
-         * Videos
+         * --------------------------------------------------------
+         * Reddit video links
+         * --------------------------------------------------------
          */
-        element
-            .querySelectorAll('video')
-            .forEach(video => {
 
-                if (
-                    isAllowedMediaURL(
-                        video.currentSrc
-                    )
-                ) {
-                    results.add(
-                        video.currentSrc
-                    );
-                }
-
-                video
-                    .querySelectorAll('source')
-                    .forEach(source => {
-
-                        if (
-                            isAllowedMediaURL(
-                                source.src
-                            )
-                        ) {
-                            results.add(
-                                source.src
-                            );
-                        }
-                    });
-            });
-
-
-        /*
-         * Direct media links
-         */
-        element
-            .querySelectorAll('a[href]')
+        post
+            .querySelectorAll(
+                'a[href*="v.redd.it"]'
+            )
             .forEach(anchor => {
 
-                const href = anchor.href;
+                const href =
+                    anchor.getAttribute('href');
 
                 if (
+                    href &&
                     isAllowedMediaURL(href)
                 ) {
-                    results.add(href);
+
+                    if (
+                        getMediaType(href) ===
+                        'video'
+                    ) {
+                        media.add(href);
+                    }
                 }
             });
 
 
-        return [...results];
-    }
-
-
-    /*
-     * ============================================================
-     * Reddit video URL normalization
-     * ============================================================
-     */
-
-    function normalizeRedditVideoURL(url) {
-
-        if (!isAllowedMediaURL(url)) {
-            return null;
-        }
-
-        const parsed =
-            parseSafeURL(url);
-
-        if (!parsed) {
-            return null;
-        }
-
-        if (
-            parsed.hostname !== 'v.redd.it'
-        ) {
-            return url;
-        }
-
         /*
-         * Only permit known Reddit video paths.
+         * --------------------------------------------------------
+         * Remove invalid values
+         * --------------------------------------------------------
          */
-        const path = parsed.pathname;
 
-        const validVideoPath =
-            /^\/[a-z0-9]+\/(?:DASH_[0-9]+|DASHPlaylist|HLSPlaylist)\.(?:mp4|mpd|m3u8)$/i;
-
-        if (!validVideoPath.test(path)) {
-            return null;
-        }
-
-        return parsed.toString();
-    }
-
-
-    /*
-     * ============================================================
-     * Build filename
-     * ============================================================
-     */
-
-    function buildFilename(
-        element,
-        mediaURL,
-        index
-    ) {
-
-        const postId =
-            sanitizeFilename(
-                getPostId(element)
-            );
-
-        const commentId =
-            getCommentId(element);
-
-        const title =
-            getPostTitle(element);
-
-        const type =
-            getMediaType(mediaURL);
-
-
-        let baseName;
-
-
-        if (commentId) {
-
-            baseName =
-                `${postId}-${sanitizeFilename(commentId)}`;
-
-        } else {
-
-            baseName =
-                `${postId}-${title}`;
-        }
-
-
-        if (index > 0) {
-
-            baseName +=
-                `-${index + 1}`;
-        }
-
-
-        let extension =
-            getExtensionFromURL(
-                mediaURL
-            );
-
-
-        if (!extension) {
-
-            extension =
-                type === 'video'
-                    ? 'mp4'
-                    : 'bin';
-        }
-
-
-        return (
-            `${CONFIG.DOWNLOAD_DIRECTORY}/` +
-            `${sanitizeFilename(baseName)}.` +
-            `${extension}`
+        return [...media].filter(
+            url =>
+                isAllowedMediaURL(url)
         );
     }
 
 
     /*
      * ============================================================
-     * Safe download
+     * FIND COMMENT MEDIA
      * ============================================================
      */
 
-    function downloadMedia(
+    function getCommentMedia(element) {
+        const comment =
+            getCommentElement(element);
+
+        if (!comment) {
+            return [];
+        }
+
+        const media = new Set();
+
+
+        /*
+         * Only explicitly linked Reddit media.
+         *
+         * Do NOT scan all <img> elements.
+         */
+
+        comment
+            .querySelectorAll(
+                'a[href*="i.redd.it"], ' +
+                'a[href*="preview.redd.it"], ' +
+                'a[href*="external-preview.redd.it"], ' +
+                'a[href*="v.redd.it"]'
+            )
+            .forEach(anchor => {
+
+                const href =
+                    anchor.getAttribute('href');
+
+                if (
+                    href &&
+                    isAllowedMediaURL(href)
+                ) {
+
+                    const type =
+                        getMediaType(href);
+
+                    if (
+                        type === 'image' ||
+                        type === 'video'
+                    ) {
+                        media.add(href);
+                    }
+                }
+            });
+
+
+        /*
+         * Actual videos inside comments.
+         */
+
+        comment
+            .querySelectorAll('video')
+            .forEach(video => {
+
+                const candidates = [
+                    video.currentSrc,
+                    video.src
+                ];
+
+                video
+                    .querySelectorAll('source')
+                    .forEach(source => {
+                        candidates.push(
+                            source.src
+                        );
+                    });
+
+
+                for (
+                    const url
+                    of candidates
+                ) {
+
+                    if (
+                        isAllowedMediaURL(url)
+                    ) {
+                        media.add(url);
+                    }
+                }
+            });
+
+
+        return [...media];
+    }
+
+
+    /*
+     * ============================================================
+     * GET MEDIA
+     * ============================================================
+     */
+
+    function getMedia(element) {
+        const postMedia =
+            getPostMedia(element);
+
+        const commentMedia =
+            getCommentMedia(element);
+
+        return [
+            ...new Set([
+                ...postMedia,
+                ...commentMedia
+            ])
+        ];
+    }
+
+
+    /*
+     * ============================================================
+     * BUILD FILENAME
+     * ============================================================
+     */
+
+    function buildFilename(
+        element,
+        url,
+        index
+    ) {
+
+        const postID =
+            getPostID(element);
+
+        const commentID =
+            getCommentID(element);
+
+        /*
+         * --------------------------------------------------------
+         * Post
+         * --------------------------------------------------------
+         *
+         * p2frxcw.jpg
+         *
+         * --------------------------------------------------------
+         */
+
+        if (postID) {
+
+            let filename =
+                sanitizeFilename(
+                    postID
+                );
+
+            /*
+             * Gallery item
+             */
+            if (index > 0) {
+                filename +=
+                    `-${index + 1}`;
+            }
+
+            const extension =
+                getExtension(url) ||
+                (
+                    getMediaType(url) === 'video'
+                        ? 'mp4'
+                        : 'jpg'
+                );
+
+            return (
+                `${CONFIG.DOWNLOAD_FOLDER}/` +
+                `${filename}.${extension}`
+            );
+        }
+
+
+        /*
+         * --------------------------------------------------------
+         * Comment
+         * --------------------------------------------------------
+         *
+         * commentID.jpg
+         *
+         * --------------------------------------------------------
+         */
+
+        if (commentID) {
+
+            const filename =
+                sanitizeFilename(
+                    commentID
+                );
+
+            const extension =
+                getExtension(url) ||
+                (
+                    getMediaType(url) === 'video'
+                        ? 'mp4'
+                        : 'jpg'
+                );
+
+            return (
+                `${CONFIG.DOWNLOAD_FOLDER}/` +
+                `${filename}.${extension}`
+            );
+        }
+
+
+        return (
+            `${CONFIG.DOWNLOAD_FOLDER}/` +
+            `reddit-media-${index + 1}.bin`
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * DOWNLOAD
+     * ============================================================
+     */
+
+    function download(
         url,
         filename
     ) {
 
         /*
-         * Final trust check immediately
-         * before download.
+         * FINAL SECURITY CHECK
          */
-        if (!isAllowedMediaURL(url)) {
 
+        if (
+            !isAllowedMediaURL(url)
+        ) {
             console.warn(
                 '[Reddit Downloader] ' +
                 'Blocked untrusted URL:',
@@ -814,81 +814,43 @@
         }
 
 
+        /*
+         * Use GM_download when available.
+         */
+
         if (
-            typeof GM_download !== 'function'
+            typeof GM_download ===
+            'function'
         ) {
 
-            fallbackDownload(
-                url,
-                filename
-            );
-
-            return;
-        }
-
-
-        try {
-
             GM_download({
-
                 url,
-
                 name: filename,
-
                 saveAs: false,
 
-                timeout: 60000,
-
                 onload() {
-
                     debug(
-                        'Download completed:',
+                        'Downloaded:',
                         filename
                     );
                 },
 
                 onerror(error) {
-
                     console.error(
                         '[Reddit Downloader] ' +
                         'Download failed:',
                         error
                     );
-                },
-
-                ontimeout() {
-
-                    console.error(
-                        '[Reddit Downloader] ' +
-                        'Download timed out:',
-                        filename
-                    );
                 }
             });
 
-        } catch (error) {
-
-            console.error(
-                '[Reddit Downloader] ' +
-                'Download exception:',
-                error
-            );
-        }
-    }
-
-
-    function fallbackDownload(
-        url,
-        filename
-    ) {
-
-        /*
-         * Re-validate.
-         */
-        if (!isAllowedMediaURL(url)) {
             return;
         }
 
+
+        /*
+         * Browser fallback.
+         */
 
         const anchor =
             document.createElement('a');
@@ -913,26 +875,27 @@
 
     /*
      * ============================================================
-     * Download button
+     * BUTTON
      * ============================================================
      */
 
-    function createDownloadButton(
-        container
-    ) {
+    function createButton(element) {
 
         if (
-            container.dataset
-                .redditDownloaderProcessed === '1'
+            element.dataset
+                .redditDownloaderProcessed ===
+            '1'
         ) {
             return;
         }
 
 
+        /*
+         * Check media first.
+         */
+
         const media =
-            collectDOMMedia(
-                container
-            );
+            getMedia(element);
 
 
         if (!media.length) {
@@ -940,16 +903,23 @@
         }
 
 
-        container.dataset
-            .redditDownloaderProcessed = '1';
+        /*
+         * Mark only after actual media
+         * was found.
+         */
+
+        element.dataset
+            .redditDownloaderProcessed =
+            '1';
 
 
         /*
-         * Prevent duplicate buttons.
+         * Prevent duplicate button.
          */
+
         if (
-            container.querySelector(
-                '.reddit-media-downloader-button'
+            element.querySelector(
+                '.reddit-media-download-button'
             )
         ) {
             return;
@@ -963,29 +933,16 @@
         button.type = 'button';
 
         button.className =
-            'reddit-media-downloader-button';
-
+            'reddit-media-download-button';
 
         button.textContent =
             CONFIG.BUTTON_TEXT;
 
 
-        /*
-         * Accessibility.
-         */
-        button.setAttribute(
-            'aria-label',
-            'Download Reddit media'
-        );
-
-
         button.title =
-            'Download media from this Reddit post/comment';
+            'Download Reddit media';
 
 
-        /*
-         * Minimal styling.
-         */
         button.style.cssText = `
             appearance: none;
             border: 0;
@@ -994,7 +951,6 @@
             font: inherit;
             font-size: 12px;
             font-weight: 600;
-            line-height: 1;
             padding: 7px 9px;
             margin: 0 3px;
             border-radius: 999px;
@@ -1007,10 +963,8 @@
         button.addEventListener(
             'mouseenter',
             () => {
-
                 button.style.background =
                     'rgba(128,128,128,.15)';
-
                 button.style.opacity = '1';
             }
         );
@@ -1019,14 +973,18 @@
         button.addEventListener(
             'mouseleave',
             () => {
-
                 button.style.background =
                     'transparent';
-
                 button.style.opacity = '.85';
             }
         );
 
+
+        /*
+         * --------------------------------------------------------
+         * CLICK
+         * --------------------------------------------------------
+         */
 
         button.addEventListener(
             'click',
@@ -1039,9 +997,8 @@
 
                 button.disabled = true;
 
-                const originalText =
+                const original =
                     button.textContent;
-
 
                 button.textContent =
                     'Downloading...';
@@ -1050,19 +1007,31 @@
                 try {
 
                     /*
-                     * Re-scan at click time.
-                     *
-                     * This is important because
-                     * Reddit may replace the media
-                     * element after initial page load.
+                     * Scan again at click time.
                      */
+
                     const currentMedia =
-                        collectDOMMedia(
-                            container
-                        );
+                        getMedia(element);
 
 
-                    if (!currentMedia.length) {
+                    /*
+                     * IMPORTANT:
+                     *
+                     * Deduplicate URLs before
+                     * downloading.
+                     */
+
+                    const uniqueMedia =
+                        [
+                            ...new Set(
+                                currentMedia
+                            )
+                        ];
+
+
+                    if (
+                        !uniqueMedia.length
+                    ) {
 
                         button.textContent =
                             'No media';
@@ -1071,55 +1040,56 @@
                     }
 
 
+                    /*
+                     * Download each unique
+                     * media URL exactly once.
+                     */
+
                     for (
-                        let index = 0;
-                        index < currentMedia.length;
-                        index++
+                        let i = 0;
+                        i < uniqueMedia.length;
+                        i++
                     ) {
 
-                        const rawURL =
-                            currentMedia[index];
+                        const url =
+                            uniqueMedia[i];
 
 
-                        /*
-                         * Final URL normalization.
-                         */
-                        const safeURL =
-                            normalizeRedditVideoURL(
-                                rawURL
-                            ) || (
-                                isAllowedMediaURL(
-                                    rawURL
-                                )
-                                    ? rawURL
-                                    : null
-                            );
-
-
-                        if (!safeURL) {
+                        if (
+                            !isAllowedMediaURL(
+                                url
+                            )
+                        ) {
                             continue;
                         }
 
 
                         const filename =
                             buildFilename(
-                                container,
-                                safeURL,
-                                index
+                                element,
+                                url,
+                                i
                             );
 
 
-                        downloadMedia(
-                            safeURL,
+                        download(
+                            url,
                             filename
                         );
 
 
                         /*
-                         * Small delay prevents
-                         * browser download throttling.
+                         * Prevent browser
+                         * download throttling.
                          */
-                        await sleep(150);
+
+                        await new Promise(
+                            resolve =>
+                                setTimeout(
+                                    resolve,
+                                    200
+                                )
+                        );
                     }
 
 
@@ -1129,7 +1099,7 @@
                 } catch (error) {
 
                     console.error(
-                        '[Reddit Downloader] ',
+                        '[Reddit Downloader]',
                         error
                     );
 
@@ -1145,7 +1115,7 @@
                                 false;
 
                             button.textContent =
-                                originalText;
+                                original;
 
                         },
                         1500
@@ -1155,8 +1125,14 @@
         );
 
 
+        /*
+         * --------------------------------------------------------
+         * PLACE BUTTON
+         * --------------------------------------------------------
+         */
+
         insertButton(
-            container,
+            element,
             button
         );
     }
@@ -1164,66 +1140,66 @@
 
     /*
      * ============================================================
-     * Button placement
+     * BUTTON PLACEMENT
      * ============================================================
      */
 
     function insertButton(
-        container,
+        element,
         button
     ) {
 
         /*
-         * Preferred: Reddit vote container.
+         * Reddit vote controls.
          */
-        const voteContainers = [
 
-            container.querySelector(
-                '[data-testid="vote-arrows"]'
-            ),
-
-            container.querySelector(
-                '[slot="vote-buttons"]'
-            ),
-
-            container.querySelector(
-                'faceplate-tracker[noun="upvote"]'
-            )?.parentElement
+        const voteSelectors = [
+            '[data-testid="vote-arrows"]',
+            '[slot="vote-buttons"]'
         ];
 
 
         for (
-            const voteContainer
-            of voteContainers
+            const selector
+            of voteSelectors
         ) {
 
+            const vote =
+                element.querySelector(
+                    selector
+                );
+
+
             if (
-                voteContainer &&
-                voteContainer.parentElement
+                vote &&
+                vote.parentElement
             ) {
 
-                voteContainer
-                    .parentElement
+                vote.parentElement
                     .insertBefore(
                         button,
-                        voteContainer
+                        vote
                     );
 
-                return true;
+                return;
             }
         }
 
 
         /*
-         * Direct upvote button.
+         * Upvote button.
          */
+
         const upvote =
-            container.querySelector(
+            element.querySelector(
                 'button[aria-label*="upvote" i]'
             );
 
 
-        if (upvote?.parentElement) {
+        if (
+            upvote &&
+            upvote.parentElement
+        ) {
 
             upvote.parentElement
                 .insertBefore(
@@ -1231,94 +1207,74 @@
                     upvote
                 );
 
-            return true;
+            return;
         }
 
 
         /*
          * Old Reddit.
          */
-        const buttons =
-            container.querySelector(
+
+        const oldButtons =
+            element.querySelector(
                 '.buttons'
             );
 
 
-        if (buttons) {
+        if (oldButtons) {
 
-            buttons.insertBefore(
+            oldButtons.insertBefore(
                 button,
-                buttons.firstChild
+                oldButtons.firstChild
             );
-
-            return true;
         }
-
-
-        /*
-         * Fallback.
-         */
-        const media =
-            container.querySelector(
-                'img, video'
-            );
-
-
-        if (media?.parentElement) {
-
-            media.parentElement
-                .insertBefore(
-                    button,
-                    media
-                );
-
-            return true;
-        }
-
-
-        return false;
     }
 
 
     /*
      * ============================================================
-     * Scanner
+     * SCAN
      * ============================================================
      */
 
     function scan() {
 
         /*
-         * Posts.
+         * Only scan actual Reddit posts.
+         *
+         * IMPORTANT:
+         *
+         * No generic <article> selector.
          */
+
         document
             .querySelectorAll(
                 'shreddit-post, ' +
-                '[data-testid="post-container"], ' +
-                'article'
+                '[data-testid="post-container"]'
             )
             .forEach(
-                createDownloadButton
+                createButton
             );
 
 
         /*
          * Comments.
          */
+
         document
             .querySelectorAll(
                 'shreddit-comment, ' +
                 '[data-testid="comment"]'
             )
             .forEach(
-                createDownloadButton
+                createButton
             );
     }
 
 
     /*
      * ============================================================
-     * Mutation Observer
+     * MUTATION OBSERVER
      * ============================================================
      */
 
@@ -1329,7 +1285,7 @@
         new MutationObserver(
             mutations => {
 
-                let hasNewContent = false;
+                let added = false;
 
 
                 for (
@@ -1338,19 +1294,18 @@
                 ) {
 
                     if (
-                        mutation.type ===
-                        'childList' &&
+                        mutation.addedNodes &&
                         mutation.addedNodes.length
                     ) {
 
-                        hasNewContent = true;
+                        added = true;
 
                         break;
                     }
                 }
 
 
-                if (!hasNewContent) {
+                if (!added) {
                     return;
                 }
 
@@ -1363,17 +1318,11 @@
                 scanTimer =
                     setTimeout(
                         scan,
-                        CONFIG.OBSERVER_DELAY
+                        300
                     );
             }
         );
 
-
-    /*
-     * ============================================================
-     * Start observer
-     * ============================================================
-     */
 
     observer.observe(
         document.documentElement,
@@ -1386,7 +1335,7 @@
 
     /*
      * ============================================================
-     * SPA navigation
+     * SPA NAVIGATION
      * ============================================================
      */
 
@@ -1406,9 +1355,6 @@
                     location.href;
 
 
-                /*
-                 * Reddit is a SPA.
-                 */
                 setTimeout(
                     scan,
                     500
@@ -1432,25 +1378,7 @@
 
     /*
      * ============================================================
-     * Utility
-     * ============================================================
-     */
-
-    function sleep(ms) {
-
-        return new Promise(
-            resolve =>
-                setTimeout(
-                    resolve,
-                    ms
-                )
-        );
-    }
-
-
-    /*
-     * ============================================================
-     * Initial scans
+     * INITIAL SCAN
      * ============================================================
      */
 
@@ -1471,7 +1399,7 @@
 
 
     debug(
-        `Reddit Media Downloader V${CONFIG.VERSION} loaded.`
+        'Reddit Media Downloader 2.1.0 loaded.'
     );
 
 })();
