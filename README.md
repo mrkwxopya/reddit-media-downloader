@@ -2,6 +2,13 @@
 
 A simple userscript for downloading images and videos from Reddit posts and comments.
 
+## Screenshots
+![screenshot](Screenshot_1.jpg)
+-
+![screenshot](Screenshot_2.jpg)
+-
+![screenshot](Screenshot_3.jpg)
+
 ## Author
 
 mrkwxopya
